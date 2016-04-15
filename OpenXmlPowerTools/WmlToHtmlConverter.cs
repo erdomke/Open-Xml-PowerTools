@@ -451,13 +451,17 @@ namespace OpenXmlPowerTools
             {
                 try
                 {
-                    var a = new XElement(Xhtml.a,
-                        new XAttribute("href",
-                            wordDoc.MainDocumentPart
+                    var url = wordDoc.MainDocumentPart
                                 .HyperlinkRelationships
                                 .First(x => x.Id == (string)element.Attribute(R.id))
-                                .Uri
-                            ),
+                                .Uri.ToString();
+                    if (element.Attribute(W.anchor) != null)
+                    {
+                        url += "#" + element.Attribute(W.anchor).Value;
+                    }
+
+                    var a = new XElement(Xhtml.a,
+                        new XAttribute("href", url),
                         element.Elements(W.r).Select(run => ConvertRun(wordDoc, settings, run))
                         );
                     if (!a.Nodes().Any())
@@ -1465,8 +1469,7 @@ namespace OpenXmlPowerTools
             // W.bdr
             if (rPr.Element(W.bdr) != null && (string) rPr.Elements(W.bdr).Attributes(W.val).FirstOrDefault() != "none")
             {
-                style.AddIfMissing("border", "solid windowtext 1.0pt");
-                style.AddIfMissing("padding", "0");
+                SetBorderStyle(rPr.Element(W.bdr), style, BorderType.Paragraph, null);
             }
 
             // W.color
@@ -2784,64 +2787,72 @@ namespace OpenXmlPowerTools
             }
             else
             {
-                var sz = (int)side.Attribute(W.sz);
-                var space = (decimal?)side.Attribute(W.space) ?? 0;
-                var color = (string)side.Attribute(W.color);
-                if (color == null || color == "auto")
-                    color = "windowtext";
-                else
-                    color = ConvertColor(color);
-
-                decimal borderWidthInPoints = Math.Max(1m, Math.Min(96m, Math.Max(2m, sz)) / 8m);
-
-                var borderStyle = "solid";
-                if (BorderStyleMap.ContainsKey(type))
-                {
-                    var borderInfo = BorderStyleMap[type];
-                    borderStyle = borderInfo.CssName;
-                    if (type == "double")
-                    {
-                        if (sz <= 8)
-                            borderWidthInPoints = 2.5m;
-                        else if (sz <= 18)
-                            borderWidthInPoints = 6.75m;
-                        else
-                            borderWidthInPoints = sz / 3m;
-                    }
-                    else if (type == "triple")
-                    {
-                        if (sz <= 8)
-                            borderWidthInPoints = 8m;
-                        else if (sz <= 18)
-                            borderWidthInPoints = 11.25m;
-                        else
-                            borderWidthInPoints = 11.25m;
-                    }
-                    else if (type.ToLower().Contains("dash"))
-                    {
-                        if (sz <= 4)
-                            borderWidthInPoints = 1m;
-                        else if (sz <= 12)
-                            borderWidthInPoints = 1.5m;
-                        else
-                            borderWidthInPoints = 2m;
-                    }
-                    else if (type != "single")
-                        borderWidthInPoints = borderInfo.CssSize;
-                }
-                if (type == "outset" || type == "inset")
-                    color = "";
-                var borderWidth = string.Format(NumberFormatInfo.InvariantInfo, "{0:0.0}pt", borderWidthInPoints);
-
-                style.Add("border-" + whichSide, borderStyle + " " + color + " " + borderWidth);
-                if (borderType == BorderType.Cell &&
-                    (whichSide == "left" || whichSide == "right"))
-                    if (space < 5.4m)
-                        space = 5.4m;
-
-                style.Add("padding-" + whichSide,
-                    space == 0 ? "0" : string.Format(NumberFormatInfo.InvariantInfo, "{0:0.0}pt", space));
+                SetBorderStyle(side, style, borderType, whichSide);
             }
+        }
+
+        private static void SetBorderStyle(XElement bdr, Dictionary<string, string> style, BorderType borderType, string whichSide)
+        {
+            var type = (string)bdr.Attribute(W.val);
+            var sz = (int)bdr.Attribute(W.sz);
+            var space = (decimal?)bdr.Attribute(W.space) ?? 0;
+            var color = (string)bdr.Attribute(W.color);
+            if (color == null || color == "auto")
+                color = "windowtext";
+            else
+                color = ConvertColor(color);
+
+            decimal borderWidthInPoints = Math.Max(1m, Math.Min(96m, Math.Max(2m, sz)) / 8m);
+
+            var borderStyle = "solid";
+            if (BorderStyleMap.ContainsKey(type))
+            {
+                var borderInfo = BorderStyleMap[type];
+                borderStyle = borderInfo.CssName;
+                if (type == "double")
+                {
+                    if (sz <= 8)
+                        borderWidthInPoints = 2.5m;
+                    else if (sz <= 18)
+                        borderWidthInPoints = 6.75m;
+                    else
+                        borderWidthInPoints = sz / 3m;
+                }
+                else if (type == "triple")
+                {
+                    if (sz <= 8)
+                        borderWidthInPoints = 8m;
+                    else if (sz <= 18)
+                        borderWidthInPoints = 11.25m;
+                    else
+                        borderWidthInPoints = 11.25m;
+                }
+                else if (type.ToLower().Contains("dash"))
+                {
+                    if (sz <= 4)
+                        borderWidthInPoints = 1m;
+                    else if (sz <= 12)
+                        borderWidthInPoints = 1.5m;
+                    else
+                        borderWidthInPoints = 2m;
+                }
+                else if (type != "single")
+                    borderWidthInPoints = borderInfo.CssSize;
+            }
+            if (type == "outset" || type == "inset")
+                color = "";
+            var borderWidth = string.Format(NumberFormatInfo.InvariantInfo, "{0:0.0}pt", borderWidthInPoints);
+
+            var sideSuffix = string.IsNullOrEmpty(whichSide) ? "" : "-" + whichSide;
+
+            style.AddIfMissing("border" + sideSuffix, borderStyle + " " + color + " " + borderWidth);
+            if (borderType == BorderType.Cell &&
+                (whichSide == "left" || whichSide == "right"))
+                if (space < 5.4m)
+                    space = 5.4m;
+
+            style.AddIfMissing("padding" + sideSuffix,
+                space == 0 ? "0" : string.Format(NumberFormatInfo.InvariantInfo, "{0:0.0}pt", space));
         }
 
         private static readonly Dictionary<string, Func<string, string, string>> ShadeMapper = new Dictionary<string,Func<string, string, string>>()
